@@ -1,5 +1,5 @@
 use crate::{drawing::*, utils::*};
-use macroquad::prelude::*;
+use egui_macroquad::macroquad::prelude::*;
 
 pub trait Tool {
     fn left_click(&mut self, pos: Vec2, op_type: &PolyOpType) -> Option<PolyOp>;

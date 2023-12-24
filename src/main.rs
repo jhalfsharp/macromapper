@@ -1,7 +1,7 @@
-use egui::{emath::RectTransform, Visuals};
 use egui_extras::{Size, StripBuilder};
+use egui_macroquad::egui::{self, emath::RectTransform, Visuals};
+use egui_macroquad::macroquad::{self, prelude::*};
 use ico::*;
-use macroquad::prelude::*;
 use undo::History;
 
 mod drawing;
@@ -202,7 +202,7 @@ async fn main() {
         //This could be shorter but that sacrifices clarity
         if mouse_pressed_new && !mouse_in_egui {
             if !mouse_pressed_old && camera.screen_rect.contains(mouse_new) {
-                drag_started = mouse_new.clone();
+                drag_started = mouse_new;
                 is_dragging = true;
             }
         } else {
@@ -234,7 +234,7 @@ async fn main() {
                     &PolyOpType::Subtraction
                 },
             ) {
-                (layer_histories[active_layer]).edit(&mut layers[active_layer], i);
+                layer_histories[active_layer].edit(&mut layers[active_layer], i);
             }
         }
 

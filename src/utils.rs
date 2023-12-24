@@ -1,4 +1,4 @@
-use macroquad::prelude::*;
+use egui_macroquad::{egui, macroquad::prelude::*};
 use std::collections::HashMap;
 
 pub trait Frac {
@@ -29,7 +29,7 @@ impl Frac for f32 {
 }
 
 pub fn poly_rect(p1: Vec2, p2: Vec2) -> geo::MultiPolygon {
-    return geo::MultiPolygon::new(vec![geo::Polygon::new(
+    geo::MultiPolygon::new(vec![geo::Polygon::new(
         geo::LineString::from(vec![
             (p1.x as f64, p1.y as f64),
             (p1.x as f64, p2.y as f64),
@@ -37,7 +37,7 @@ pub fn poly_rect(p1: Vec2, p2: Vec2) -> geo::MultiPolygon {
             (p2.x as f64, p1.y as f64),
         ]),
         vec![],
-    )]);
+    )])
 }
 
 #[derive(PartialEq)]
@@ -60,7 +60,7 @@ impl Cam {
         }
     }
 
-    pub fn update_focus(&mut self, new: Vec2) -> () {
+    pub fn update_focus(&mut self, new: Vec2) {
         self.focus = new;
         self.grid_rect.x = self.focus.x - 0.5 * self.screen_rect.w;
         self.grid_rect.y = self.focus.y - 0.5 * self.screen_rect.h;
@@ -68,7 +68,7 @@ impl Cam {
         self.grid_rect.h = self.screen_rect.h;
     }
 
-    pub fn to_camera(&mut self) -> Camera2D {
+    pub fn to_camera(&self) -> Camera2D {
         Camera2D {
             target: self.focus,
             zoom: vec2(2.0 / self.screen_rect.w, 2.0 / self.screen_rect.h),
