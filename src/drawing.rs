@@ -61,26 +61,28 @@ impl Line {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     area: MultiPolygon,
-    sketch: Sketch,
+    area_sketch: Sketch,
     hatching: Sketch,
+    name: String,
 }
 
 impl Layer {
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         Layer {
             area: MultiPolygon(vec![]),
-            sketch: Sketch::new(3.0, BLACK),
+            area_sketch: Sketch::new(3.0, BLACK),
             hatching: Sketch::new(2.0, GRAY),
+            name,
         }
     }
     pub fn draw(&self) {
         self.hatching.draw();
-        self.sketch.draw();
+        self.area_sketch.draw();
     }
     fn update_sketch(&mut self) {
-        self.sketch.clear();
+        self.area_sketch.clear();
         for l in self.area.lines_iter() {
-            self.sketch.add(Line::from_geo(l));
+            self.area_sketch.add(Line::from_geo(l));
         }
     }
     fn generate_hatching(&mut self) {
@@ -154,7 +156,7 @@ impl Layer {
                 .centroid()
                 .expect("all polygons should have a centroid");
             srand(hash((center.x() + center.y()).to_bits()));
-            let rot = rand() % 360;
+            let rot = rand() % 180;
             let hatches: Vec<_> = hatches_base
                 .clone()
                 .into_iter()
@@ -196,58 +198,126 @@ impl Layer {
 }
 
 #[derive(Clone)]
-pub enum PolyOpType {
-    Union,
-    Subtraction,
+pub struct Map {
+    layers: Vec<Layer>,
 }
 
-pub struct PolyOp {
-    base: MultiPolygon,
-    operator: MultiPolygon,
-    operation: PolyOpType,
-}
-
-impl PolyOp {
-    pub fn new(kind: PolyOpType, other: MultiPolygon) -> Self {
-        PolyOp {
-            operator: other,
-            base: MultiPolygon(vec![]),
-            operation: kind,
-        }
+impl Map {
+    pub fn new() -> Self {
+        Map { layers: vec![] }
+    }
+    pub fn append_layer(&mut self) {
+        self.layers.push(Layer::new(
+            "layer-".to_string() + &self.layers.len().to_string(),
+        ));
+    }
+    pub fn layers_iter(&self) -> core::slice::Iter<'_, Layer> {
+        self.layers.iter()
     }
 }
 
-impl Edit for PolyOp {
-    type Target = Layer;
+pub enum MapEdit {
+    Union(MapUnion),
+    Subtraction(MapSubtraction),
+}
+
+//boring boilerplate to make things work
+//check edit and undo methods for each operation for implementation details
+impl Edit for MapEdit {
+    type Target = Map;
     type Output = ();
 
     fn edit(&mut self, target: &mut Self::Target) -> Self::Output {
-        match self.operation {
-            PolyOpType::Union => {
-                self.base = target.area.intersection(&self.operator);
-                target.area = target.area.union(&self.operator);
-            }
-            PolyOpType::Subtraction => {
-                self.base = target.area.intersection(&self.operator);
-                target.area = target.area.difference(&self.operator);
-            }
+        match self {
+            MapEdit::Union(u) => u.edit(target),
+            MapEdit::Subtraction(s) => s.edit(target),
         }
-        target.update_sketch();
-        target.generate_hatching();
     }
-
     fn undo(&mut self, target: &mut Self::Target) -> Self::Output {
-        match self.operation {
-            PolyOpType::Union => {
-                target.area = target.area.difference(&self.operator).union(&self.base);
-            }
-            PolyOpType::Subtraction => {
-                target.area = target.area.union(&self.base);
-            }
+        match self {
+            MapEdit::Union(u) => u.undo(target),
+            MapEdit::Subtraction(s) => s.undo(target),
         }
-        target.update_sketch();
-        target.generate_hatching();
     }
+}
+
+pub struct MapUnion {
+    base: MultiPolygon,
+    operator: MultiPolygon,
+    layer: usize,
+}
+
+impl MapUnion {
+    pub fn new(layer: usize, operator: MultiPolygon) -> Self {
+        Self {
+            base: MultiPolygon(vec![]),
+            operator,
+            layer,
+        }
+    }
+    fn edit(&mut self, target: &mut Map) {
+        let target_layer = target
+            .layers
+            .get_mut(self.layer)
+            .expect("layer should exist");
+        self.base = target_layer.area.intersection(&self.operator);
+        target_layer.area = target_layer.area.union(&self.operator);
+        target_layer.update_sketch();
+        target_layer.generate_hatching();
+    }
+    fn undo(&mut self, target: &mut Map) {
+        let target_layer = target
+            .layers
+            .get_mut(self.layer)
+            .expect("layer should exist");
+        target_layer.area = target_layer
+            .area
+            .difference(&self.operator)
+            .union(&self.base);
+        target_layer.update_sketch();
+        target_layer.generate_hatching();
+    }
+}
+
+pub struct MapSubtraction {
+    base: MultiPolygon,
+    operator: MultiPolygon,
+    layer: usize,
+}
+
+impl MapSubtraction {
+    pub fn new(layer: usize, operator: MultiPolygon) -> Self {
+        Self {
+            base: MultiPolygon(vec![]),
+            operator,
+            layer,
+        }
+    }
+    fn edit(&mut self, target: &mut Map) {
+        let target_layer = target
+            .layers
+            .get_mut(self.layer)
+            .expect("layer should exist");
+        self.base = target_layer.area.intersection(&self.operator);
+        target_layer.area = target_layer.area.difference(&self.operator);
+        target_layer.update_sketch();
+        target_layer.generate_hatching();
+    }
+    fn undo(&mut self, target: &mut Map) {
+        let target_layer = target
+            .layers
+            .get_mut(self.layer)
+            .expect("layer should exist");
+        target_layer.area = target_layer.area.union(&self.base);
+        target_layer.update_sketch();
+        target_layer.generate_hatching();
+    }
+}
+
+#[derive(Clone)]
+pub enum PolyOpType {
+    Union,
+    Subtraction,
 }
 
 #[cfg(test)]
@@ -256,61 +326,75 @@ mod tests {
 
     #[test]
     fn basic_undo_redo() {
-        let mut test_layer = Layer::new();
+        let mut test_map: Map = Map {
+            layers: vec![Layer::new("test".to_string())],
+        };
         let mut history: History<_> = History::new();
         history.edit(
-            &mut test_layer,
-            PolyOp::new(
-                PolyOpType::Union,
+            &mut test_map,
+            MapEdit::Union(MapUnion::new(
+                0,
                 MultiPolygon::new(vec![polygon![
                     (x: 0., y: 0.),
                     (x: 0., y: 1.),
                     (x: 1., y: 1.),
                     (x: 1., y: 0.)
                 ]]),
-            ),
+            )),
         );
-        let one = test_layer.clone();
+        let one = test_map.clone();
         history.edit(
-            &mut test_layer,
-            PolyOp::new(
-                PolyOpType::Union,
+            &mut test_map,
+            MapEdit::Union(MapUnion::new(
+                0,
                 MultiPolygon::new(vec![polygon![
                     (x: 1., y: 0.),
                     (x: 1., y: 0.5),
                     (x: 2., y: 0.5),
                     (x: 2., y: 0.)
                 ]]),
-            ),
+            )),
         );
-        let two = test_layer.clone();
-        history.undo(&mut test_layer);
-        let three = test_layer.clone();
-        history.redo(&mut test_layer);
-        let four = test_layer.clone();
+        let two = test_map.clone();
+        history.undo(&mut test_map);
+        let three = test_map.clone();
+        history.redo(&mut test_map);
+        let four = test_map.clone();
         history.edit(
-            &mut test_layer,
-            PolyOp::new(
-                PolyOpType::Subtraction,
+            &mut test_map,
+            MapEdit::Union(MapUnion::new(
+                0,
                 MultiPolygon::new(vec![polygon![
                     (x: 0., y: 0.),
                     (x: 0., y: 1.),
                     (x: 1., y: 1.),
                     (x: 1., y: 0.)
                 ]]),
-            ),
+            )),
         );
-        let five = test_layer.clone();
-        history.undo(&mut test_layer);
-        let six = test_layer.clone();
-        history.redo(&mut test_layer);
-        let seven = test_layer.clone();
+        let five = test_map.clone();
+        history.undo(&mut test_map);
+        let six = test_map.clone();
+        history.redo(&mut test_map);
+        let seven = test_map.clone();
 
         //Points are different so comparing whole layers would fail even if behavior is correct
         //I compare areas to ensure that the geometry makes sense without requiring the internals to be the same
-        assert_eq!(one.area.unsigned_area(), three.area.unsigned_area());
-        assert_eq!(two.area.unsigned_area(), four.area.unsigned_area());
-        assert_eq!(four.area.unsigned_area(), six.area.unsigned_area());
-        assert_eq!(five.area.unsigned_area(), seven.area.unsigned_area());
+        assert_eq!(
+            one.layers.get(0).unwrap().area.unsigned_area(),
+            three.layers.get(0).unwrap().area.unsigned_area()
+        );
+        assert_eq!(
+            two.layers.get(0).unwrap().area.unsigned_area(),
+            four.layers.get(0).unwrap().area.unsigned_area()
+        );
+        assert_eq!(
+            four.layers.get(0).unwrap().area.unsigned_area(),
+            six.layers.get(0).unwrap().area.unsigned_area()
+        );
+        assert_eq!(
+            five.layers.get(0).unwrap().area.unsigned_area(),
+            seven.layers.get(0).unwrap().area.unsigned_area()
+        );
     }
 }

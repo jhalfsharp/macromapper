@@ -1,6 +1,6 @@
 use egui_extras::{Size, StripBuilder};
 use egui_macroquad::egui::{self, emath::RectTransform, Visuals};
-use egui_macroquad::macroquad::{self, prelude::*};
+use egui_macroquad::macroquad::{self, input, prelude::*};
 use ico::*;
 use undo::History;
 
@@ -14,6 +14,7 @@ use tools::*;
 //Import images
 const DRAG_SVG: &[u8; 832] = include_bytes!("../assets/icons/d_drag.svg");
 const RECT_SVG: &[u8; 495] = include_bytes!("../assets/icons/d_rect.svg");
+const PEN_SVG: &[u8; 689] = include_bytes!("../assets/icons/d_pen.svg");
 
 //Window setup
 fn default_conf() -> Conf {
@@ -59,6 +60,7 @@ async fn main() {
     let mut is_dragging: bool = false;
     let mut mouse_pressed_old: bool = false;
     let mut mouse_pressed_new: bool;
+    let mut mouse_pressed_r: bool;
     let mut mouse_in_egui: bool = false;
     let mut mouse_grid: Vec2;
     let mut mouse_grid_snapped: Vec2;
@@ -77,14 +79,16 @@ async fn main() {
     //again, images shouldnt change so unwrap is safe if it launches once
     let drag_img = egui_extras::RetainedImage::from_svg_bytes("drag", DRAG_SVG).unwrap();
     let rect_img = egui_extras::RetainedImage::from_svg_bytes("rect", RECT_SVG).unwrap();
+    let poly_img = egui_extras::RetainedImage::from_svg_bytes("poly", PEN_SVG).unwrap();
 
     //App state globals
     let mut tool: Box<dyn Tool> = Box::new(DragTool {});
     let mut selected_tool: i8 = 1;
     let mut tool_type = true;
 
-    let mut layers: Vec<Layer> = vec![Layer::new()];
-    let mut layer_histories: Vec<History<_>> = vec![History::<PolyOp>::new()];
+    let mut active_map = Map::new();
+    active_map.append_layer();
+    let mut history = History::<MapEdit>::new();
     let mut active_layer: usize = 0;
 
     loop {
@@ -148,7 +152,21 @@ async fn main() {
                                 tool = Box::new(RectTool::new());
                                 selected_tool = 2;
                             }
+                            if ui
+                                .add(
+                                    egui::ImageButton::new(
+                                        poly_img.texture_id(egui_ctx),
+                                        poly_img.size_vec2(),
+                                    )
+                                    .selected(selected_tool == 3),
+                                )
+                                .clicked()
+                            {
+                                tool = Box::new(PolyTool::new());
+                                selected_tool = 3;
+                            }
                         });
+
                         strip.cell(|ui| {
                             ui.label("Test");
                             ui.horizontal(|ui| {
@@ -177,6 +195,9 @@ async fn main() {
             });
             egui::SidePanel::right("right_panel").show(egui_ctx, |ui| {
                 ui.label("Test");
+                ui.group(|ui| {
+                    ui.label("Layer example");
+                });
             });
             let available = egui_ctx.available_rect();
             let screen_to_relative = RectTransform::from_to(
@@ -198,6 +219,7 @@ async fn main() {
         // Process keys, mouse etc.
         mouse_new = mouse_position().into();
         mouse_pressed_new = is_mouse_button_down(MouseButton::Left);
+        mouse_pressed_r = is_mouse_button_down(MouseButton::Right);
 
         //This could be shorter but that sacrifices clarity
         if mouse_pressed_new && !mouse_in_egui {
@@ -228,13 +250,31 @@ async fn main() {
         {
             if let Some(i) = tool.left_click(
                 mouse_grid_snapped,
+                active_layer,
                 if tool_type {
                     &PolyOpType::Union
                 } else {
                     &PolyOpType::Subtraction
                 },
             ) {
-                layer_histories[active_layer].edit(&mut layers[active_layer], i);
+                history.edit(&mut active_map, i);
+            }
+        }
+
+        if mouse_pressed_r && camera.screen_rect.contains(mouse_new) && !mouse_in_egui {
+            if let Some(i) = tool.right_click(mouse_grid_snapped) {
+                history.edit(&mut active_map, i);
+            }
+        }
+
+        if input::is_key_down(KeyCode::LeftControl) || input::is_key_down(KeyCode::RightControl) {
+            if input::is_key_pressed(KeyCode::Z) {
+                //undo: ctrl-z
+                history.undo(&mut active_map);
+            }
+            if input::is_key_pressed(KeyCode::Y) {
+                //redo: ctrl-y
+                history.redo(&mut active_map);
             }
         }
 
@@ -270,7 +310,7 @@ async fn main() {
             })
             .count();
         grid.draw();
-        for l in layers.iter().rev() {
+        for l in active_map.layers_iter() {
             l.draw();
         }
 
