@@ -55,23 +55,26 @@ impl Cam {
             focus: vec2(0., 0.),
             screen_rect: Default::default(),
             grid_rect: Default::default(),
-            scale: 50.,
+            scale: 1.,
             dpi: dpi_scale,
         }
     }
 
     pub fn update_focus(&mut self, new: Vec2) {
         self.focus = new;
-        self.grid_rect.x = self.focus.x - 0.5 * self.screen_rect.w;
-        self.grid_rect.y = self.focus.y - 0.5 * self.screen_rect.h;
-        self.grid_rect.w = self.screen_rect.w;
-        self.grid_rect.h = self.screen_rect.h;
+        self.grid_rect.x = self.focus.x - 0.5 * self.screen_rect.w / self.scale;
+        self.grid_rect.y = self.focus.y - 0.5 * self.screen_rect.h / self.scale;
+        self.grid_rect.w = self.screen_rect.w / self.scale;
+        self.grid_rect.h = self.screen_rect.h / self.scale;
     }
 
     pub fn to_camera(&self) -> Camera2D {
         Camera2D {
             target: self.focus,
-            zoom: vec2(2.0 / self.screen_rect.w, 2.0 / self.screen_rect.h),
+            zoom: vec2(
+                self.scale * 2.0 / self.screen_rect.w,
+                self.scale * 2.0 / self.screen_rect.h,
+            ),
             viewport: Some((
                 (self.screen_rect.x * self.dpi) as i32,
                 (self.screen_rect.y * self.dpi) as i32,

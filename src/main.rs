@@ -1,8 +1,10 @@
-use egui_extras::{Size, StripBuilder};
+use camera::mouse;
+use egui_extras::{RetainedImage, Size, StripBuilder};
+use egui_macroquad::egui::Layout;
 use egui_macroquad::egui::{self, emath::RectTransform, Visuals};
 use egui_macroquad::macroquad::{self, input, prelude::*};
 use ico::*;
-use undo::History;
+use undo::Record;
 
 mod drawing;
 use drawing::*;
@@ -15,6 +17,10 @@ use tools::*;
 const DRAG_SVG: &[u8; 832] = include_bytes!("../assets/icons/d_drag.svg");
 const RECT_SVG: &[u8; 495] = include_bytes!("../assets/icons/d_rect.svg");
 const PEN_SVG: &[u8; 689] = include_bytes!("../assets/icons/d_pen.svg");
+const ZOOM_IN_SVG: &[u8; 686] = include_bytes!("../assets/icons/z_zoom_in.svg");
+const ZOOM_OUT_SVG: &[u8; 663] = include_bytes!("../assets/icons/z_zoom_out.svg");
+
+const GRID_SIZE: f32 = 50.;
 
 //Window setup
 fn default_conf() -> Conf {
@@ -77,9 +83,16 @@ async fn main() {
 
     //Image loading and rasterizing
     //again, images shouldnt change so unwrap is safe if it launches once
-    let drag_img = egui_extras::RetainedImage::from_svg_bytes("drag", DRAG_SVG).unwrap();
-    let rect_img = egui_extras::RetainedImage::from_svg_bytes("rect", RECT_SVG).unwrap();
-    let poly_img = egui_extras::RetainedImage::from_svg_bytes("poly", PEN_SVG).unwrap();
+    let drag_img = RetainedImage::from_svg_bytes("drag", DRAG_SVG).unwrap();
+    let rect_img = RetainedImage::from_svg_bytes("rect", RECT_SVG).unwrap();
+    let poly_img = RetainedImage::from_svg_bytes("poly", PEN_SVG).unwrap();
+
+    let zoom_in_img = RetainedImage::from_svg_bytes("zoom in", ZOOM_IN_SVG).unwrap();
+    let zoom_out_img = RetainedImage::from_svg_bytes("zoom out", ZOOM_OUT_SVG).unwrap();
+
+    let zoom_sizes = vec![
+        0.1, 0.2, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.2, 1.25, 1.33, 1.5, 1.75, 2.0,
+    ];
 
     //App state globals
     let mut tool: Box<dyn Tool> = Box::new(DragTool {});
@@ -88,7 +101,7 @@ async fn main() {
 
     let mut active_map = Map::new();
     active_map.append_layer();
-    let mut history = History::<MapEdit>::new();
+    let mut history = Record::<MapEdit>::new();
     let mut active_layer: usize = 0;
 
     loop {
@@ -114,6 +127,30 @@ async fn main() {
                             camera.update_focus(vec2(0., 0.));
                             ui.close_menu();
                         }
+                    });
+                    ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
+                        if ui
+                            .add(egui::ImageButton::new(
+                                zoom_in_img.texture_id(egui_ctx),
+                                zoom_in_img.size_vec2() * 0.6,
+                            ))
+                            .clicked()
+                        {
+                            camera.scale = *zoom_sizes
+                                .iter()
+                                .find(|&&e| e > camera.scale)
+                                .unwrap_or_else(|| &camera.scale);
+                        }
+                        if ui.add(egui::ImageButton::new(
+                            zoom_out_img.texture_id(egui_ctx),
+                            zoom_out_img.size_vec2() * 0.6,
+                        )).clicked() {
+                            camera.scale = *zoom_sizes
+                                .iter()
+                                .rfind(|&&e| e < camera.scale)
+                                .unwrap_or_else(|| &camera.scale);
+                        }
+                        ui.add(egui::Slider::new(&mut camera.scale, 0.1..=2.0).text("Zoom"));
                     });
                 });
             });
@@ -184,10 +221,6 @@ async fn main() {
                                     ui.selectable_value(&mut snap, 0.2, "1/5");
                                     ui.selectable_value(&mut snap, 1.0 / 6.0, "1/6");
                                 });
-                            ui.add(
-                                egui::Slider::new(&mut camera.scale, 10.0..=200.0)
-                                    .text("Grid spacing"),
-                            );
                             //Fill with empty space to allow resizing
                             //ui.allocate_space(ui.available_size());
                         })
@@ -211,10 +244,11 @@ async fn main() {
                 camera.screen_rect.y = screen_height() - canvas.bottom();
                 camera.screen_rect.w = canvas.width();
                 camera.screen_rect.h = canvas.height();
-                camera.update_focus(camera.focus);
             }
             mouse_in_egui = egui_ctx.is_using_pointer();
         });
+
+        camera.update_focus(camera.focus);
 
         // Process keys, mouse etc.
         mouse_new = mouse_position().into();
@@ -232,10 +266,10 @@ async fn main() {
         }
 
         // Handle coordinates
-        mouse_grid = (mouse_new - camera.screen_rect.point()) * vec2(1.0, -1.0)
+        mouse_grid = (mouse_new - camera.screen_rect.point()) * vec2(1.0, -1.0) / camera.scale
             + camera.grid_rect.point()
             + vec2(0.0, camera.grid_rect.h);
-        mouse_grid_snapped = (mouse_grid / camera.scale / snap).round() * camera.scale * snap;
+        mouse_grid_snapped = (mouse_grid / GRID_SIZE / snap).round() * GRID_SIZE * snap;
 
         //Update based on input
         if is_dragging {
@@ -287,25 +321,25 @@ async fn main() {
         //Grid
         clear_background(WHITE);
         let mut grid = Sketch::new(1., LIGHTGRAY);
-        ((camera.grid_rect.left() / camera.scale) as i32
-            ..=(camera.grid_rect.right() / camera.scale) as i32)
+        ((camera.grid_rect.left() / GRID_SIZE) as i32
+            ..=(camera.grid_rect.right() / GRID_SIZE) as i32)
             .map(|i| {
                 grid.add(Line::new(
-                    i as f32 * camera.scale,
+                    i as f32 * GRID_SIZE,
                     camera.grid_rect.top(),
-                    i as f32 * camera.scale,
+                    i as f32 * GRID_SIZE,
                     camera.grid_rect.bottom(),
                 ));
             })
             .count();
-        ((camera.grid_rect.top() / camera.scale) as i32
-            ..=(camera.grid_rect.bottom() / camera.scale) as i32)
+        ((camera.grid_rect.top() / GRID_SIZE) as i32
+            ..=(camera.grid_rect.bottom() / GRID_SIZE) as i32)
             .map(|i| {
                 grid.add(Line::new(
                     camera.grid_rect.left(),
-                    i as f32 * camera.scale,
+                    i as f32 * GRID_SIZE,
                     camera.grid_rect.right(),
-                    i as f32 * camera.scale,
+                    i as f32 * GRID_SIZE,
                 ));
             })
             .count();
