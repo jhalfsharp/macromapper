@@ -21,7 +21,9 @@ impl Tool for DragTool {
         None
     }
     fn drag(&mut self, mouse_new: Vec2, mouse_old: Vec2, camera: &mut Cam) -> Option<MapEdit> {
-        camera.update_focus(camera.focus + (mouse_new - mouse_old) * (Vec2::NEG_X + Vec2::Y));
+        camera.update_focus(
+            camera.focus + (mouse_new - mouse_old) * (Vec2::NEG_X + Vec2::Y) / camera.scale,
+        );
         None
     }
     fn preview(&mut self, _pos: Vec2, thickness: f32, color: Color) -> Sketch {
