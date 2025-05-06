@@ -6,6 +6,7 @@ use egui_macroquad::macroquad::{
 use fast_poisson::Poisson2D;
 use geo::line_intersection::line_intersection;
 use geo::*;
+use new_egui_macroquad as egui_macroquad;
 use undo::*;
 use voronator::VoronoiDiagram;
 

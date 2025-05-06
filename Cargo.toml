@@ -7,8 +7,8 @@ authors = ["June M"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-egui-macroquad = "0.15.0"
-egui_extras = {version="0.21.0", features=["svg"]}
+new-egui-macroquad = "0.16.0"
+egui_extras = {version="0.28", features=["svg", "file"]}
 geo = "0.27.0"
 undo = "0.51.0"
 ico = "0.3.0"

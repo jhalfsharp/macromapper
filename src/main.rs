@@ -1,9 +1,9 @@
 use camera::mouse;
-use egui_extras::{RetainedImage, Size, StripBuilder};
-use egui_macroquad::egui::Layout;
-use egui_macroquad::egui::{self, emath::RectTransform, Visuals};
+use egui_extras::{install_image_loaders, Size, StripBuilder};
+use egui_macroquad::egui::{self, emath::RectTransform, include_image, Image, Layout, Visuals};
 use egui_macroquad::macroquad::{self, input, prelude::*};
 use ico::*;
+use new_egui_macroquad as egui_macroquad;
 use undo::Record;
 
 mod drawing;
@@ -12,13 +12,6 @@ mod utils;
 use utils::*;
 mod tools;
 use tools::*;
-
-//Import images
-const DRAG_SVG: &[u8; 832] = include_bytes!("../assets/icons/d_drag.svg");
-const RECT_SVG: &[u8; 495] = include_bytes!("../assets/icons/d_rect.svg");
-const PEN_SVG: &[u8; 689] = include_bytes!("../assets/icons/d_pen.svg");
-const ZOOM_IN_SVG: &[u8; 686] = include_bytes!("../assets/icons/z_zoom_in.svg");
-const ZOOM_OUT_SVG: &[u8; 663] = include_bytes!("../assets/icons/z_zoom_out.svg");
 
 const GRID_SIZE: f32 = 50.;
 
@@ -54,6 +47,11 @@ fn default_conf() -> Conf {
                 .try_into()
                 .unwrap(),
         }),
+        sample_count: 8,
+        platform: miniquad::conf::Platform {
+            linux_backend: miniquad::conf::LinuxBackend::WaylandWithX11Fallback,
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -74,21 +72,21 @@ async fn main() {
     let mut snap: f32 = 0.5;
 
     //Camera globals
-    let res_scale: f32; //screen DPI scale (usually 1.0)
-    unsafe {
-        //I really wish I didn't have to use any unsafe, but apparently the DPI scale is dangerous
-        res_scale = get_internal_gl().quad_context.dpi_scale();
-    }
-    let mut camera = Cam::new(res_scale);
+    // let res_scale: f32; //screen DPI scale (usually 1.0)
+    // unsafe {
+    //     //I really wish I didn't have to use any unsafe, but apparently the DPI scale is dangerous
+    //     res_scale = get_internal_gl().quad_context.dpi_scale();
+    // }
+    let mut camera = Cam::new(1.0);
 
     //Image loading and rasterizing
     //again, images shouldnt change so unwrap is safe if it launches once
-    let drag_img = RetainedImage::from_svg_bytes("drag", DRAG_SVG).unwrap();
-    let rect_img = RetainedImage::from_svg_bytes("rect", RECT_SVG).unwrap();
-    let poly_img = RetainedImage::from_svg_bytes("poly", PEN_SVG).unwrap();
+    let drag_img = "file://assets/icons/d_drag.svg";
+    let rect_img = "file://assets/icons/d_rect.svg";
+    let poly_img = "file://assets/icons/d_pen.svg";
 
-    let zoom_in_img = RetainedImage::from_svg_bytes("zoom in", ZOOM_IN_SVG).unwrap();
-    let zoom_out_img = RetainedImage::from_svg_bytes("zoom out", ZOOM_OUT_SVG).unwrap();
+    let zoom_in_img = "file://assets/icons/z_zoom_in.svg";
+    let zoom_out_img = "file://assets/icons/z_zoom_out.svg";
 
     let zoom_sizes = vec![
         0.1, 0.2, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.2, 1.25, 1.33, 1.5, 1.75, 2.0,
@@ -106,6 +104,8 @@ async fn main() {
 
     loop {
         egui_macroquad::ui(|egui_ctx| {
+            install_image_loaders(egui_ctx);
+
             egui::TopBottomPanel::top("top_panel").show(egui_ctx, |ui| {
                 // The top panel is often a good place for a menu bar:
                 egui::menu::bar(ui, |ui| {
@@ -129,22 +129,13 @@ async fn main() {
                         }
                     });
                     ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
-                        if ui
-                            .add(egui::ImageButton::new(
-                                zoom_in_img.texture_id(egui_ctx),
-                                zoom_in_img.size_vec2() * 0.6,
-                            ))
-                            .clicked()
-                        {
+                        if ui.add(egui::ImageButton::new(zoom_in_img)).clicked() {
                             camera.scale = *zoom_sizes
                                 .iter()
                                 .find(|&&e| e > camera.scale)
                                 .unwrap_or_else(|| &camera.scale);
                         }
-                        if ui.add(egui::ImageButton::new(
-                            zoom_out_img.texture_id(egui_ctx),
-                            zoom_out_img.size_vec2() * 0.6,
-                        )).clicked() {
+                        if ui.add(egui::ImageButton::new(zoom_out_img)).clicked() {
                             camera.scale = *zoom_sizes
                                 .iter()
                                 .rfind(|&&e| e < camera.scale)
@@ -164,39 +155,21 @@ async fn main() {
                     .horizontal(|mut strip| {
                         strip.cell(|ui| {
                             if ui
-                                .add(
-                                    egui::ImageButton::new(
-                                        drag_img.texture_id(egui_ctx),
-                                        drag_img.size_vec2(),
-                                    )
-                                    .selected(selected_tool == 1),
-                                )
+                                .add(egui::ImageButton::new(drag_img).selected(selected_tool == 1))
                                 .clicked()
                             {
                                 tool = Box::new(DragTool {});
                                 selected_tool = 1;
                             }
                             if ui
-                                .add(
-                                    egui::ImageButton::new(
-                                        rect_img.texture_id(egui_ctx),
-                                        rect_img.size_vec2(),
-                                    )
-                                    .selected(selected_tool == 2),
-                                )
+                                .add(egui::ImageButton::new(rect_img).selected(selected_tool == 2))
                                 .clicked()
                             {
                                 tool = Box::new(RectTool::new());
                                 selected_tool = 2;
                             }
                             if ui
-                                .add(
-                                    egui::ImageButton::new(
-                                        poly_img.texture_id(egui_ctx),
-                                        poly_img.size_vec2(),
-                                    )
-                                    .selected(selected_tool == 3),
-                                )
+                                .add(egui::ImageButton::new(poly_img).selected(selected_tool == 3))
                                 .clicked()
                             {
                                 tool = Box::new(PolyTool::new());

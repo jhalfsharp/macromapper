@@ -2,6 +2,7 @@ use core::mem;
 
 use crate::{drawing::*, utils::*};
 use egui_macroquad::macroquad::prelude::*;
+use new_egui_macroquad as egui_macroquad;
 
 pub trait Tool {
     fn left_click(&mut self, pos: Vec2, layer: usize, op_type: &PolyOpType) -> Option<MapEdit>;

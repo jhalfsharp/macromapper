@@ -1,4 +1,5 @@
 use egui_macroquad::{egui, macroquad::prelude::*};
+use new_egui_macroquad as egui_macroquad;
 use std::collections::HashMap;
 
 pub trait Frac {
@@ -73,7 +74,8 @@ impl Cam {
             target: self.focus,
             zoom: vec2(
                 self.scale * 2.0 / self.screen_rect.w,
-                self.scale * 2.0 / self.screen_rect.h,
+                -self.scale * 2.0 / self.screen_rect.h, //Why the fuck did macroquad flip the y-axis?
+                                                        //TODO: maybe rewrite anything that's flipped? I haven't touched rendering code in a while
             ),
             viewport: Some((
                 (self.screen_rect.x * self.dpi) as i32,
@@ -94,7 +96,9 @@ fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
         *on = !*on;
         response.mark_changed();
     }
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
+    });
     if ui.is_rect_visible(rect) {
         let how_on = ui.ctx().animate_bool(response.id, *on);
         let visuals = ui.style().interact_selectable(&response, *on);
